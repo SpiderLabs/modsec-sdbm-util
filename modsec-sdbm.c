@@ -27,11 +27,13 @@
 #include <apr_want.h>
 #include <apr_allocator.h>
 #include <apr_sdbm.h>
-
+#include <time.h>
 
 int verbose = 0;
 int print_unpack = 0;
 int print_only_expireds = 0;
+
+#define VERSION "v1.0"
 
 #define v(fmt, ARGS...) do { if (verbose) printf("%s:%d:%s(): " fmt, __FILE__, \
         __LINE__, __func__, ## ARGS); } while (0)
@@ -44,7 +46,7 @@ int open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
 
     v("Trying to open: %s\n", name);
 
-    ret = apr_sdbm_open(db, name, APR_CREATE | APR_WRITE | APR_SHARELOCK, 0x0777, pool);
+    ret = apr_sdbm_open(db, name, APR_WRITE | APR_SHARELOCK, 0x0777, pool);
     if (ret == APR_SUCCESS)
     {
         goto ok_to_go;
@@ -53,10 +55,10 @@ int open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
     if (strlen(name) < 5) /* .ext  + 1 */
         goto failed;
 
-    guessed_name = strndupa(name, strlen(name)-4);
+    guessed_name = strndup(name, strlen(name)-4);
 
     v("Trying to open: %s\n", guessed_name);
-    ret = apr_sdbm_open(db, guessed_name, APR_CREATE | APR_WRITE | APR_SHARELOCK, 0x0777, pool);
+    ret = apr_sdbm_open(db, guessed_name, APR_WRITE | APR_SHARELOCK, 0x0777, pool);
     /* free(guessed_name); */
     if (ret == APR_SUCCESS)
     {
@@ -107,7 +109,7 @@ int expired(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_size)
         blob_offset += 2;
         if (blob_offset + name_len > blob_size)
         {
-            return ;
+            return 0;
         }
 
         name = strndup((const char *)blob + blob_offset, name_len - 1);
@@ -119,7 +121,7 @@ int expired(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_size)
 
         if (blob_offset + value_len > blob_size)
         {
-            return;
+            return 0;
         }
 
         char *value = strndup((const char *)blob + blob_offset, value_len - 1);
@@ -247,6 +249,79 @@ failed:
     return -1;
 }
 
+static int shrink_status_db(apr_pool_t *pool, apr_sdbm_t *db)
+{
+    apr_status_t ret;
+    apr_sdbm_datum_t key;
+    apr_sdbm_datum_t val;
+    apr_sdbm_t *new_db = NULL;
+    int expd = 0;
+    int others = 0;
+    int dots = 0;
+    int elements = 0;
+
+    ret = apr_sdbm_firstkey(db, &key);
+    if (ret != APR_SUCCESS) {
+        v("Failed to retrieve the first key of the database.\n");
+        goto failed;
+    }
+
+    do {
+        ret = apr_sdbm_fetch(db, &val, key);
+        if (ret != APR_SUCCESS) {
+            v("Failed to fetch the value of the key: %s.\n", key.dptr);
+            goto failed;
+        }
+
+        if (val.dsize == 0) {
+            others++;
+            goto next_item;
+        }
+
+        if (expired(pool, (const unsigned char *)val.dptr, val.dsize)) {
+            expd++;
+            goto next_item;
+        }
+
+       next_item:
+        if (others + expd % 10 == 0)
+        {
+            dots++;
+            if (dots % 80 == 0)
+                printf("\n");
+            printf(".");
+        }
+
+        ret = apr_sdbm_nextkey(db, &key);
+        if (ret != APR_SUCCESS) {
+            v("Failed to retrieve the next key.\n");
+            goto failed;
+        }
+        elements++;
+    } while (key.dptr);
+
+//FIXME>
+    printf("\n");
+    printf("Total of %d elements on the original database\n", elements);
+    printf("%d elements removed.\n", expd+others);
+    printf("(Expired: %d, others: %d)\n", expd, others);
+    printf("Reduced in %2.2d%%\n", 100*(expd+others)/elements);
+    apr_sdbm_close(new_db);
+
+    return 0;
+failed:
+    printf("\n");
+    printf("Total of %d elements on the database\n", elements);
+    printf("%d elements can be removed.\n", expd+others);
+    printf("(Expired: %d, others: %d)\n", expd, others);
+    printf("%2.2d%% of this dabatase needs to be cleaned.\n", 100*(expd+others)/elements);
+    apr_sdbm_close(new_db);
+
+
+    return -1;
+}
+
+
 static int shrink_db(apr_pool_t *pool, apr_sdbm_t *db)
 {
     apr_status_t ret;
@@ -364,7 +439,7 @@ int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
 
 void hello (void) {
 
-    p("\n modsec-sdbm\n\n");
+    p("\n modsec-sdbm %s\n\n", VERSION);
 
     p(" This utility was created in order to make easy the maintenance of the SDBM files\n");
     p(" which stores ModSecurity persistent collections.\n\n");
@@ -414,11 +489,11 @@ int main (int argc, char **argv)
         case 'k':
             shrink = 1;
             break;
-        case 's':
-            status = 1;
-            break;
         case 'd':
             dump = 1;
+            break;
+        case 's':
+            status = 1;
             break;
         case 'r':
             to_remove = optarg;
@@ -469,6 +544,9 @@ int main (int argc, char **argv)
             printf("Failed to open sdbm: %s", file);
             goto that_is_all_folks;
         }
+
+        if (status)
+            shrink_status_db(pool, db);
 
         if (shrink)
             shrink_db(pool, db);
