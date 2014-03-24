@@ -111,7 +111,7 @@ int modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
                 /* This should never happen as the name length
                  * includes the terminating NUL and should be 1 for ""
                  */
-                v("Maybe we have a corruption... the string goes boynd the " \
+                v("Maybe we have a corruption... the string goes beyond the " \
                         "allocated space.\n");
             }
             break;
@@ -147,7 +147,7 @@ int modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
 
         blob_offset += value_len;
         value_len--;
-    
+
         if (action & IS_EXPIRED)
         {
             if (strcmp("__expire_KEY", name) == 0)
@@ -191,7 +191,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
     int removed = 0;
     int progress = 0;
     int fret = 0;
-    
+
     if (action & PRINT)
         v("Dumping database...\n");
     if (action & SHRINK)
@@ -287,7 +287,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
                 {
                     p("Failed to insert key: \"%s\"\n", (const unsigned char *)key.dptr);
                 }
- 
+
             }
 
         }
@@ -303,7 +303,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 end:
     if (action & EXTRACT)
     {
-        p("New database generated with valied keys at: /tmp/new_db\n");
+        p("New database generated with valid keys at: /tmp/new_db\n");
         apr_sdbm_close(db_dest);
     }
     if (action & SHRINK || action & STATUS)
@@ -363,17 +363,17 @@ void help (void) {
 
     p("  -k, shrink: Removes all the expired elements as long as others not well\n");
     p("\tformated items from the database.\n");
-    p("  -n, new: Extract valid items of a databse to a new one. Output will be:\n");
+    p("  -n, new: Extract valid items of a database to a new one. Output will be:\n");
     p("\t/tmp/new_db.[ip,pag]\n");
-    p("  -s, status: Print information about the table, such us the amount of item,\n");
+    p("  -s, status: Print information about the table, such us the amount of items,\n");
     p("\tamount of expired items and also the amount of malformed items that\n");
     p("\tmay be using space;\n");
-    p("  -d, dump: Dump all the items of the database on the `stdout`;\n");
+    p("  -d, dump: Dump all database items to `stdout`;\n");
     p("  -u, unpack: Interpret the content of the value as ModSecurity does, printing\n");
-    p("\tthe results on the conosle. (This does not make sense without the\n");
+    p("\tthe results to the console. (This does not make sense without the\n");
     p("\t-d option);\n");
     p("  -x, expired: Print only the expired elements. (As unpack, this item does not\n");
-    p("\tmake sense whitout the dump option);\n");
+    p("\tmake sense without the dump option);\n");
     p("  -r, remove: Expects to receive a key as a paramter to be removed;\n");
     p("  -v, verbose: Some extra information about what this utility is doing.\n");
     p("  -h, help: this message.\n\n");
@@ -387,7 +387,7 @@ int main (int argc, char **argv)
     int index;
     int c;
     int action = 0;
-     
+
     if (argc < 2)
     {
         help();
@@ -448,7 +448,7 @@ int main (int argc, char **argv)
         char *file = argv[index];
         apr_sdbm_t *db = NULL;
 
-        printf ("Openning file: %s\n", file);
+        printf ("Opening file: %s\n", file);
         ret = open_sdbm(pool, &db, argv[index]);
         if (ret < 0)
         {
@@ -478,5 +478,3 @@ int main (int argc, char **argv)
 that_is_all_folks:
     return 0;
 }
-
-
