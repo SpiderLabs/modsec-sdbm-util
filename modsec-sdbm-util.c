@@ -356,7 +356,7 @@ int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
 
 void help (void) {
 
-    p("\n modsec-sdbm %s\n\n", VERSION);
+    p("\n modsec-sdbm-util %s\n\n", VERSION);
 
     p("This utility was created in order to make easy the maintenance of the SDBM files\n");
     p("which stores ModSecurity persistent collections.\n\n");
