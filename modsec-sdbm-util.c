@@ -270,7 +270,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 
             if (selected && action & SHRINK)
             {
-                ret = remote_datum_t(pool, db, &key);
+                ret = remove_datum_t(pool, db, &key);
                 if (ret != APR_SUCCESS)
                 {
                     p("Failed to delete key: \"%s\"\n", (const unsigned char *)key.dptr);
@@ -321,7 +321,7 @@ end:
     return fret;
 }
 
-int remote_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
+int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
 {
     int ret = 0;
 
@@ -351,7 +351,7 @@ int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
     key.dptr = (char *)strdup(key_str);
     key.dsize = strlen(key_str)+1;
 
-    return remote_datum_t(pool, db, &key);
+    return remove_datum_t(pool, db, &key);
 }
 
 void help (void) {
@@ -434,7 +434,7 @@ int main (int argc, char **argv)
         case 'h':
         default:
             help();
-            return;
+            return 0;
     }
 
     apr_initialize();
