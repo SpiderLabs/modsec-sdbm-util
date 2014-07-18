@@ -31,9 +31,15 @@
 
 #define VERSION "v1.0"
 
-#define v(fmt, ARGS...) do { if (verbose) printf("%s:%d:%s(): " fmt, __FILE__, \
+#ifndef WIN32
+# define v(fmt, ARGS...) do { if (verbose) printf("%s:%d:%s(): " fmt, __FILE__, \
         __LINE__, __func__, ## ARGS); } while (0)
-#define p(fmt, ARGS...) do { printf(fmt, ## ARGS); } while (0)
+# define p(fmt, ARGS...) do { printf(fmt, ## ARGS); } while (0)
+#endif
+#ifdef WIN32
+#define p  printf
+#define v  if (verbose) printf
+#endif
 
 #define IS_EXPIRED 128
 
@@ -179,6 +185,26 @@ int is_expired(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_si
     return modsec_unpack(pool, blob, blob_size, IS_EXPIRED);
 }
 
+int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
+{
+    int ret = 0;
+
+    ret = apr_sdbm_delete(db, *key);
+
+    if (ret == APR_SUCCESS)
+    {
+        v("Deleted successfully.\n");
+        return 0;
+    }
+
+    v("apr_sdbm_rdonly? %d\n", apr_sdbm_rdonly(db));
+    v("APR_EINVAL? %d\n", APR_EINVAL);
+    v("ret ==  %d\n", ret);
+
+    v("Failed to delete.\n");
+    return -1;
+}
+
 static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 {
     apr_status_t ret;
@@ -321,26 +347,6 @@ end:
     return fret;
 }
 
-int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
-{
-    int ret = 0;
-
-    ret = apr_sdbm_delete(db, *key);
-
-    if (ret == APR_SUCCESS)
-    {
-        v("Deleted successfully.\n");
-        return 0;
-    }
-
-    v("apr_sdbm_rdonly? %d\n", apr_sdbm_rdonly(db));
-    v("APR_EINVAL? %d\n", APR_EINVAL);
-    v("ret ==  %d\n", ret);
-
-    v("Failed to delete.\n");
-    return -1;
-}
-
 int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
 {
     apr_status_t ret;
@@ -428,8 +434,8 @@ int main (int argc, char **argv)
                 fprintf (stderr, "Unknown option `-%c'.\n", optopt);
             else
                 fprintf (stderr,
-                        "Unknown option character `\\x%x'.\n",
-                        optopt);
+                        "Unknown option character `\\x%x'.\n", optopt);
+            help();
             return 1;
         case 'h':
         default:
@@ -465,6 +471,7 @@ int main (int argc, char **argv)
         if (action == 0)
         {
             printf("Choose an option.\n");
+            help();
             goto that_is_all_folks;
         }
 
