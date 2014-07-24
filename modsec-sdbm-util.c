@@ -24,10 +24,18 @@
 #include <apr.h>
 #include <apr_errno.h>
 #include <apr_general.h>
+#include <apr_strings.h>
 #include <apr_want.h>
 #include <apr_allocator.h>
 #include <apr_sdbm.h>
 #include <time.h>
+
+
+#include <apr.h>
+#include <apr_file_io.h>
+#include <apr_strings.h>
+#include <apr_errno.h>
+#include <apr_sdbm.h>
 
 #define VERSION "v1.0"
 
@@ -49,10 +57,19 @@
 #define SHRINK 16
 #define STATUS 32
 #define EXTRACT 64
+#define LIMITS 128
 
+#define LIMITS_NUM_OF_PROCESS 10
+#define LIMITS_NUM_OF_ITEMS 10000
 
 int verbose = 0;
+int num_of_process = LIMITS_NUM_OF_PROCESS;
+unsigned int num_of_items = LIMITS_NUM_OF_ITEMS;
+
 static char progress_feedback[] = {'|', '/', '-', '\\'};
+
+
+apr_array_header_t *to_delete = NULL;
 
 
 int open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
@@ -62,7 +79,7 @@ int open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
 
     v("Trying to open: %s\n", name);
 
-    ret = apr_sdbm_open(db, name, APR_WRITE | APR_SHARELOCK, 0x0777, pool);
+    ret = apr_sdbm_open(db, name, APR_WRITE | APR_SHARELOCK , 0x0777, pool);
     if (ret == APR_SUCCESS)
     {
         goto ok_to_go;
@@ -74,7 +91,7 @@ int open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
     guessed_name = strndup(name, strlen(name)-4);
 
     v("Trying to open: %s\n", guessed_name);
-    ret = apr_sdbm_open(db, guessed_name, APR_WRITE | APR_SHARELOCK,
+    ret = apr_sdbm_open(db, guessed_name, APR_WRITE | APR_SHARELOCK ,
             0x0777, pool);
     free(guessed_name);
 
@@ -91,12 +108,54 @@ ok_to_go:
     return 0;
 }
 
+int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
+{
+    int ret = 0;
+
+    ret = apr_sdbm_delete(db, *key);
+
+    if (ret == APR_SUCCESS)
+    {
+        v("Deleted successfully.\n");
+        return 0;
+    }
+
+    v("apr_sdbm_rdonly? %d\n", apr_sdbm_rdonly(db));
+    v("APR_EINVAL? %d\n", APR_EINVAL);
+    v("ret ==  %d\n", ret);
+
+    v("Failed to delete.\n");
+    return -1;
+}
+
+int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
+{
+    apr_status_t ret;
+    apr_sdbm_datum_t key;
+
+    v("Deleting key: %s\n", key_str);
+
+    if (key_str == NULL)
+    {
+        v("Key is null?\n");
+    }
+
+    key.dptr = (char *)strdup(key_str);
+    key.dsize = strlen(key_str)+1;
+    if (strlen(key_str) == 0)
+    {
+        key.dsize = 0;
+    }
+
+    return remove_datum_t(pool, db, &key);
+}
+
+
 int modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
         unsigned int blob_size, int action)
 {
     unsigned int blob_offset;
     int ret;
-
 
     ret = 0;
     blob_offset = 3;
@@ -185,26 +244,6 @@ int is_expired(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_si
     return modsec_unpack(pool, blob, blob_size, IS_EXPIRED);
 }
 
-int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
-{
-    int ret = 0;
-
-    ret = apr_sdbm_delete(db, *key);
-
-    if (ret == APR_SUCCESS)
-    {
-        v("Deleted successfully.\n");
-        return 0;
-    }
-
-    v("apr_sdbm_rdonly? %d\n", apr_sdbm_rdonly(db));
-    v("APR_EINVAL? %d\n", APR_EINVAL);
-    v("ret ==  %d\n", ret);
-
-    v("Failed to delete.\n");
-    return -1;
-}
-
 static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 {
     apr_status_t ret;
@@ -221,22 +260,32 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
     if (action & PRINT)
         v("Dumping database...\n");
     if (action & SHRINK)
+    {
+        to_delete = apr_array_make(pool, 256, sizeof(char *));
         v("Starting the shrink process...\n");
+    }
     if (action & STATUS)
         v("Showing some status about the databases...\n");
 
     if (action & EXTRACT)
     {
+
         v("Exporting valid items to: /tmp/new_db.[pag,dir]...\n");
         ret = apr_sdbm_open(&db_dest, "/tmp/new_db",
-                APR_CREATE | APR_WRITE | APR_SHARELOCK, 0x0777, pool);
+                APR_CREATE | APR_WRITE | APR_SHARELOCK , 0x0777, pool);
 
         if (ret != APR_SUCCESS)
         {
-            v("Failed to retrieve the first key of the database.\n");
+            v("Failed to open the new database.\n");
             fret = -1;
             goto end;
         }
+    }
+
+    ret = apr_sdbm_lock(db, APR_FLOCK_EXCLUSIVE);
+    if (ret != APR_SUCCESS) {
+        v("Failed to lock the database.\n");
+        goto end;
     }
 
     ret = apr_sdbm_firstkey(db, &key);
@@ -246,15 +295,15 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
         fret = -1;
         goto end;
     }
-
-    do {
+    while (ret == APR_SUCCESS)
+    {
         ret = apr_sdbm_fetch(db, &val, key);
-        if (ret != APR_SUCCESS) {
+        if (ret != APR_SUCCESS)
+        {
             v("Failed to fetch the value of the key: %s.\n", key.dptr);
             fret = -1;
             goto end;
         }
-
         elements++;
 
         if (action & PRINT)
@@ -263,7 +312,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
                     ((action & PRINT_ONLY_EXPIRED) && is_expired(pool,
                     (const unsigned char *)val.dptr, val.dsize)))
             {
-                printf("Key: \"%s\", Value len: %d\n", key.dptr, val.dsize);
+                printf("Key: \"%.*s\" (len: %d), Value \"%.*s\" (len: %d)\n", key.dsize, key.dptr, key.dsize, val.dsize, val.dptr, val.dsize);
                 if (action & PRINT_MODSEC_VARS)
                 {
                     print_modsec_variables(pool,
@@ -275,7 +324,8 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
         if (action & SHRINK || action & STATUS || action & EXTRACT)
         {
             int selected = 0;
-            if (val.dsize == 0) {
+            if ((val.dsize  < 2 || key.dsize < 5) ||
+                ((strlen(val.dptr) != val.dsize) || (strlen(key.dptr) != key.dsize))) {
                 bad_datum++;
                 selected = 1;
             }
@@ -296,43 +346,64 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 
             if (selected && action & SHRINK)
             {
-                ret = remove_datum_t(pool, db, &key);
-                if (ret != APR_SUCCESS)
+                if (key.dsize > 0)
                 {
-                    p("Failed to delete key: \"%s\"\n", (const unsigned char *)key.dptr);
-                } else {
-                    removed++;
-                }
-                //Remove key.
-            }
+                    apr_sdbm_datum_t *key2 = malloc(sizeof(apr_sdbm_datum_t));
+                    char *s = malloc(key.dsize);
 
-            if (selected == 0 && action & EXTRACT)
+                    memcpy(s, key.dptr, key.dsize);
+                    key2->dptr = s;
+                    key2->dsize = key.dsize;
+
+                    *(apr_sdbm_datum_t **)apr_array_push(to_delete) = key2;
+                }
+                else
+                {
+                    p("Ops!");
+                    return -1;
+                }
+
+            }
+            if ((selected == 0 || 0 == 1) && action & EXTRACT)
             {
-                ret = apr_sdbm_store(db_dest, key, val, APR_SDBM_INSERT);
+                ret = apr_sdbm_store(db_dest, key, val, APR_SDBM_REPLACE);
                 if (ret != APR_SUCCESS)
                 {
                     p("Failed to insert key: \"%s\"\n", (const unsigned char *)key.dptr);
                 }
-
             }
-
         }
-
         ret = apr_sdbm_nextkey(db, &key);
-        if (ret != APR_SUCCESS) {
-            v("Failed to retrieve the next key.\n");
-            fret = -1;
-            goto end;
-        }
-    } while (key.dptr);
+    }
 
 end:
+    apr_sdbm_unlock(db);
+
+    if (action & SHRINK)
+    {
+        apr_sdbm_datum_t **keys;
+        int i = 0;
+
+        keys = (apr_sdbm_datum_t **)to_delete->elts;
+        for (i = 0; i < to_delete->nelts; i++) {
+            apr_sdbm_datum_t *k = keys[i];
+
+            ret = remove_datum_t(pool, db, k);
+            if (ret != APR_SUCCESS)
+            {
+                p("- Failed to delete key: \"%*.s\"\n", k->dsize, (const unsigned char *)k->dptr);
+            } else {
+                removed++;
+            }
+        }
+    }
+
     if (action & EXTRACT)
     {
         p("New database generated with valid keys at: /tmp/new_db\n");
         apr_sdbm_close(db_dest);
     }
-    if (action & SHRINK || action & STATUS)
+    if (action & SHRINK || action & STATUS || action & LIMITS)
     {
         printf("\n");
         printf("Total of %.0f elements processed.\n", elements);
@@ -345,19 +416,6 @@ end:
     }
 
     return fret;
-}
-
-int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
-{
-    apr_status_t ret;
-    apr_sdbm_datum_t key;
-
-    v("Deleting key: %s\n", key_str);
-
-    key.dptr = (char *)strdup(key_str);
-    key.dsize = strlen(key_str)+1;
-
-    return remove_datum_t(pool, db, &key);
 }
 
 void help (void) {
@@ -382,9 +440,39 @@ void help (void) {
     p("\tmake sense without the dump option);\n");
     p("  -r, remove: Expects to receive a key as a paramter to be removed;\n");
     p("  -v, verbose: Some extra information about what this utility is doing.\n");
+    p("  -l, limits: push the limits of the apr/sdbm implementation to verify for\n");
+    p("\tinconsistences.\n");
+    p("     -p, parallel: number of parallel process accessing the sdbm file.\n");
+    p("     -i, items: number of items that each process will create/delete.\n");
     p("  -h, help: this message.\n\n");
 
 }
+
+int fork_children (int children)
+{
+    int i;
+    pid_t pid;
+
+    for (i = 1; i <= children; i++)
+    {
+        pid = fork();
+
+        if (pid == -1)
+        {
+            /* error handling here, if needed */
+            return -1;
+        }
+
+        if (pid == 0)
+        {
+            //printf("I am a child: %d PID: %d\n", i, getpid());
+            return 0;
+        }
+    }
+    return 1;
+}
+
+
 
 int main (int argc, char **argv)
 {
@@ -400,7 +488,7 @@ int main (int argc, char **argv)
         return 0;
     }
 
-    while ((c = getopt (argc, argv, "nkxsdahvur:")) != -1)
+    while ((c = getopt (argc, argv, "nkxsdahvur:i:p:l")) != -1)
     switch (c)
     {
         case 'd':
@@ -426,6 +514,15 @@ int main (int argc, char **argv)
             break;
         case 'v':
             verbose = 1;
+            break;
+        case 'l':
+            action = action | LIMITS;
+            break;
+        case 'i':
+            num_of_items = atoi(optarg);
+            break;
+        case 'p':
+            num_of_process = atoi(optarg);
             break;
         case '?':
             if (optopt == 'r')
@@ -455,25 +552,109 @@ int main (int argc, char **argv)
         apr_sdbm_t *db = NULL;
 
         printf ("Opening file: %s\n", file);
-        ret = open_sdbm(pool, &db, argv[index]);
+
+        if (action & LIMITS) 
+        {
+            apr_status_t apr_ret;
+            apr_ret = apr_sdbm_open(&db, file, APR_WRITE | APR_SHARELOCK | APR_CREATE , 0x0777, pool);
+            if (apr_ret != APR_SUCCESS)
+            {
+                ret = -1;
+            }
+        }
+        else
+        {
+            ret = open_sdbm(pool, &db, argv[index]);
+        }
+
         if (ret < 0)
         {
             printf("Failed to open sdbm: %s\n", file);
             goto that_is_all_folks;
         }
+
         printf("Database ready to be used.\n");
 
-        if (to_remove) {
+        if (action & LIMITS)
+        {
+            int i = 0;
+            int count = 0;
+
+            apr_sdbm_close(db);
+            int chd = fork_children(num_of_process);
+
+            for (i = 0; i < num_of_items; i++)
+            {
+                apr_sdbm_datum_t kkey;
+                apr_sdbm_datum_t vval;
+                apr_status_t status;
+                char key[1024];
+                char val[1024];
+
+                if (apr_sdbm_open(&db, file, APR_WRITE | APR_SHARELOCK , 0x0777, pool) != APR_SUCCESS)
+                {
+                    return 0;
+                }
+                apr_sdbm_lock(db, APR_FLOCK_EXCLUSIVE);
+
+                sprintf(key, "key-%d-%d", getpid(), i);
+                sprintf(val, "val:%d-%d", getpid(), i);
+
+                printf(".");
+                if (count == 79)
+                {
+                    printf("\n");
+                    count = 0;
+                }
+
+                count++;
+
+                kkey.dptr = (char *)strdup(key);
+                kkey.dsize = strlen(key)+1;
+                if (strlen(key) == 0)
+                {
+                    kkey.dsize = 0;
+                }
+
+                vval.dptr = (char *)strdup(val);
+                vval.dsize = strlen(val)+1;
+                if (strlen(val) == 0)
+                {
+                    vval.dsize = 0;
+                }
+
+
+                status = apr_sdbm_store(db, kkey, vval, APR_SDBM_INSERT);
+                remove_key(pool, db, "key-buh");
+                remove_key(pool, db, "key-bah");
+
+                apr_sdbm_unlock(db);
+                apr_sdbm_close(db);
+            }
+
+            if (chd == 0)
+            {
+                return 0;
+            }
+
+
+        }
+
+        if (to_remove)
+        {
             printf("Removing key: %s\n", to_remove);
             remove_key(pool, db, to_remove);
             continue;
         }
+
         if (action == 0)
         {
             printf("Choose an option.\n");
             help();
             goto that_is_all_folks;
         }
+
+        apr_sdbm_open(&db, file, APR_WRITE | APR_SHARELOCK , 0x0777, pool);
 
         dump_database(pool, db, action);
 
