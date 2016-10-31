@@ -205,7 +205,7 @@ int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
     return -1;
 }
 
-static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
+static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action, char *new_db_path)
 {
     apr_status_t ret;
     apr_sdbm_datum_t key;
@@ -227,8 +227,17 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 
     if (action & EXTRACT)
     {
-        v("Exporting valid items to: /tmp/new_db.[pag,dir]...\n");
-        ret = apr_sdbm_open(&db_dest, "/tmp/new_db",
+       
+        char *file_name = "/new_db";
+        int full_len = 1 + strlen(new_db_path) + strlen(file_name); 
+        char *full_path = (char *) malloc(full_len);
+        strcpy(full_path, new_db_path);
+        strcat(full_path, file_name);
+        full_path[full_len] = '\0';
+  
+        v("Exporting valid items to: %s.[pag,dir]...\n",full_path);
+        
+        ret = apr_sdbm_open(&db_dest, full_path,
                 APR_CREATE | APR_WRITE | APR_SHARELOCK, 0x0777, pool);
 
         if (ret != APR_SUCCESS)
@@ -329,7 +338,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action)
 end:
     if (action & EXTRACT)
     {
-        p("New database generated with valid keys at: /tmp/new_db\n");
+        p("New database generated with valid keys at: %s/new_db\n", new_db_path);
         apr_sdbm_close(db_dest);
     }
     if (action & SHRINK || action & STATUS)
@@ -370,7 +379,9 @@ void help (void) {
     p("  -k, shrink: Removes all the expired elements as long as others not well\n");
     p("\tformated items from the database.\n");
     p("  -n, new: Extract valid items of a database to a new one. Output will be:\n");
-    p("\t/tmp/new_db.[ip,pag]\n");
+    p("\t/tmp/new_db.[ip,pag] unless otherwise specified using the -D option.\n");
+    p("  -D, directory: Used with -n, expects to receive a directory path in which the\n");
+    p("\tthe resulting new_db.[ip,pag] files are placed.\n");
     p("  -s, status: Print information about the table, such us the amount of items,\n");
     p("\tamount of expired items and also the amount of malformed items that\n");
     p("\tmay be using space;\n");
@@ -390,6 +401,7 @@ int main (int argc, char **argv)
 {
     apr_pool_t *pool;
     char *to_remove = NULL;
+    char *new_db_path = strdup("/tmp");
     int index;
     int c;
     int action = 0;
@@ -400,7 +412,7 @@ int main (int argc, char **argv)
         return 0;
     }
 
-    while ((c = getopt (argc, argv, "nkxsdahvur:")) != -1)
+    while ((c = getopt (argc, argv, "nkxsdahvur:D:")) != -1)
     switch (c)
     {
         case 'd':
@@ -421,8 +433,12 @@ int main (int argc, char **argv)
         case 'n':
             action = action | EXTRACT;
             break;
+        case 'D':
+            free(new_db_path);
+            new_db_path = strdup(optarg);
+            break;
         case 'r':
-            to_remove = optarg;
+            to_remove = strdup(optarg);
             break;
         case 'v':
             verbose = 1;
@@ -475,12 +491,15 @@ int main (int argc, char **argv)
             goto that_is_all_folks;
         }
 
-        dump_database(pool, db, action);
+        dump_database(pool, db, action, new_db_path);
 
         apr_sdbm_close(db);
     }
 
     apr_pool_destroy(pool);
+
+    free(to_remove);
+    free(new_db_path);
 
 that_is_all_folks:
     return 0;
