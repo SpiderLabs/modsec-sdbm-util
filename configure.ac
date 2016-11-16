@@ -9,6 +9,7 @@ AC_PREREQ(2.63)
 AC_INIT([modsec-sdbm-util], [1.0], [support@modsecurity.org])
 
 AC_CONFIG_MACRO_DIR([m4])
+AC_CONFIG_AUX_DIR([m4])
 AC_CONFIG_SRCDIR([LICENSE])
 AC_PREFIX_DEFAULT([/usr/local/modsecurity])
 AC_CONFIG_HEADERS(modsec-sdbm-util-config.h)
