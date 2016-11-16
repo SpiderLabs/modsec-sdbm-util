@@ -1,5 +1,4 @@
-modsec-sdbm-util
-
+## modsec-sdbm-util
 This utility was created in order to make easy the maintenance of the SDBM files
 which stores ModSecurity persistent collections.
 
@@ -22,3 +21,11 @@ List of options:
    * -r, remove: Expects to receive a key as a paramter to be removed;
    * -v, verbose: Some extra information about what this utility is doing;
    * -h, help: this message.
+
+## Build instructions
+````
+# ./autogen.sh
+# ./configure
+# make
+# ./modsec-sdbm-util
+````
