@@ -14,7 +14,7 @@
 
 /*
  * Use the follwoing command to get it compiled:
- * gcc modsec-sdbm.c -g `pkg-config apr-1 apr-util-1 --libs --cflags` -o modsec-sdbm
+ * gcc modsec-sdbm-util.c -g `pkg-config apr-1 apr-util-1 --libs --cflags` -o modsec-sdbm-util 
  */
 
 #include <ctype.h>
