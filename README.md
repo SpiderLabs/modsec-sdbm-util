@@ -9,6 +9,8 @@ List of options:
       formated items from the database.
    * -n, new: Extract valid items of a database to a new one. Output will be:
       /tmp/new_db.[ip,pag]
+   * -D, directory: Used with -n, expects to receive a directory path in which the
+      the resulting new_db.[ip,pag] files are placed.
    * -s, status: Print information about the table, such us the amount of items,
       amount of expired items and also the amount of malformed items that
       may be using space;
