@@ -469,6 +469,18 @@ int main (int argc, char **argv)
         int ret = 0;
         char *file = argv[index];
         apr_sdbm_t *db = NULL;
+        apr_dir_t *db_dest_dir;
+
+        // test to see if the target directory exists
+        printf ("Checking target directory: %s\n", new_db_path);
+        ret = apr_dir_open(&db_dest_dir, new_db_path, pool);
+        if (ret != APR_SUCCESS) {
+            char errmsg[120];
+            p("Could not open target directory %s: %s\n", new_db_path, apr_strerror(ret, errmsg, sizeof errmsg));
+            goto that_is_all_folks;
+        }
+        apr_dir_close(db_dest_dir);
+        printf("Target directory exists.\n");
 
         printf ("Opening file: %s\n", file);
         ret = open_sdbm(pool, &db, argv[index]);
