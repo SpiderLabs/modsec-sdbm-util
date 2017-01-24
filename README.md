@@ -28,12 +28,12 @@ List of options:
 
 #### Fedora
 ````
-# dnf install libtool automake gcc
+# dnf install libtool automake gcc apr-devel apr-util-devel
 ````
 
 #### RHEL
 ````
-# yum install libtool automake gcc
+# yum install libtool automake gcc apr-devel apr-util-devel
 ````
 
 ## Build instructions
