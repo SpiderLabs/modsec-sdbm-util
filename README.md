@@ -24,6 +24,18 @@ List of options:
    * -v, verbose: Some extra information about what this utility is doing;
    * -h, help: this message.
 
+## Build Prerequisities
+
+#### Fedora
+````
+# dnf install libtool automake gcc
+````
+
+#### RHEL
+````
+# yum install libtool automake gcc
+````
+
 ## Build instructions
 ````
 # ./autogen.sh
