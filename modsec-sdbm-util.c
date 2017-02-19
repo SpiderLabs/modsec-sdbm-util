@@ -358,7 +358,6 @@ end:
 
 int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
 {
-    apr_status_t ret;
     apr_sdbm_datum_t key;
 
     v("Deleting key: %s\n", key_str);
