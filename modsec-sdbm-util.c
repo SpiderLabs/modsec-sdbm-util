@@ -298,7 +298,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action, char *new
             if ((int)elements % 10 == 0)
             {
                 int p2s = (int) progress++ % 4;
-                p(" [%c] %.0f records so far.\r", progress_feedback[p2s],
+                p(" [%c] %.0f records so far.\n", progress_feedback[p2s],
                         elements);
                 fflush(stdout);
             }
