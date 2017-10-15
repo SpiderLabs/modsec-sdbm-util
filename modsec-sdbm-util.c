@@ -368,9 +368,13 @@ int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
     return remove_datum_t(pool, db, &key);
 }
 
+void version (void) {
+    p("\n modsec-sdbm-util %s\n\n", VERSION);
+}
+
 void help (void) {
 
-    p("\n Usage: modsec-sdbm-util [nkxsdahvurD] <database-name>\n\n");
+    p("\n Usage: modsec-sdbm-util [nkxsdahVvurD] <database-name>\n\n");
 
     p("This utility was created in order to make easy the maintenance of the SDBM files\n");
     p("which stores ModSecurity persistent collections.\n\n");
@@ -391,6 +395,7 @@ void help (void) {
     p("  -x, expired: Print only the expired elements. (As unpack, this item does not\n");
     p("\tmake sense without the dump option);\n");
     p("  -r, remove: Expects to receive a key as a paramter to be removed;\n");
+    p("  -V. version: Print version information.\n");    
     p("  -v, verbose: Some extra information about what this utility is doing.\n");
     p("  -h, help: this message.\n\n");
 
@@ -411,7 +416,7 @@ int main (int argc, char **argv)
         return 0;
     }
 
-    while ((c = getopt (argc, argv, "nkxsdahvur:D:")) != -1)
+    while ((c = getopt (argc, argv, "nkxsdahVvur:D:")) != -1)
     switch (c)
     {
         case 'd':
@@ -442,6 +447,9 @@ int main (int argc, char **argv)
         case 'v':
             verbose = 1;
             break;
+        case 'V':
+            version();
+            return 0;
         case '?':
             if (optopt == 'r')
                 fprintf (stderr, "Option -%c requires an argument.\n", optopt);
