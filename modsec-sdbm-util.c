@@ -370,7 +370,7 @@ int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
 
 void help (void) {
 
-    p("\n modsec-sdbm-util %s\n\n", VERSION);
+    p("\n Usage: modsec-sdbm-util [nkxsdahvurD] <database-name>\n\n");
 
     p("This utility was created in order to make easy the maintenance of the SDBM files\n");
     p("which stores ModSecurity persistent collections.\n\n");
@@ -456,6 +456,12 @@ int main (int argc, char **argv)
         default:
             help();
             return 0;
+    }
+
+    if (optind == argc) {
+        printf ("No database name was provided.\n");
+        help();
+        return 0;
     }
 
     apr_initialize();
