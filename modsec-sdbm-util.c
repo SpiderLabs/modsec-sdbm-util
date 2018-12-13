@@ -356,13 +356,13 @@ end:
     return fret;
 }
 
-int remove_key (apr_pool_t *pool, apr_sdbm_t *db, const char *key_str)
+int remove_key (apr_pool_t *pool, apr_sdbm_t *db, char *key_str)
 {
     apr_sdbm_datum_t key;
 
     v("Deleting key: %s\n", key_str);
 
-    key.dptr = (char *)strdup(key_str);
+    key.dptr = key_str;
     key.dsize = strlen(key_str)+1;
 
     return remove_datum_t(pool, db, &key);
