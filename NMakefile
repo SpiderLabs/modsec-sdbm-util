@@ -1,22 +1,5 @@
-#  Copyright(c) 2019 Red Hat Inc.,
-#  and individual contributors as indicated by the @authors tag.
-#  See the copyright.txt in the distribution for a
-#  full listing of individual contributors.
 #
-#  This is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU Lesser General Public
-#  License as published by the Free Software Foundation; either
-#  version 2 of the License, or (at your option) any later version.
-#
-#  This software is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-#  Lesser General Public License for more details.
-#
-#  You should have received a copy of the GNU Lesser General Public
-#  License along with this software in the file COPYING.LIB;
-#  if not, write to the Free Software Foundation, Inc.,
-#  59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
+# www.apache.org/licenses/LICENSE-2.0
 #
 # @author Mladen Turk
 #
@@ -120,7 +103,7 @@ BUILD=RELEASE
 APR_LIB = libapr-1.lib
 APU_LIB = libaprutil-1.lib
 !ELSE
-CFLAGS = $(CFLAGS) -DAPR_DECLARE_STATIC
+CFLAGS = $(CFLAGS) -DAPR_DECLARE_STATIC -DAPU_DECLARE_STATIC
 APR_LIB = apr-1.lib
 APU_LIB = aprutil-1.lib
 !ENDIF
@@ -168,7 +151,7 @@ CPPFLAGS = $(CPPFLAGS) $(EXTRA_CPPFLAGS)
 !ENDIF
 
 # Linker section
-LIBS = kernel32.lib advapi32.lib user32.lib
+LIBS = kernel32.lib advapi32.lib user32.lib ws2_32.lib mswsock.lib shell32.lib
 LIBS = $(LIBS) /libpath:"$(WITH_APR)\lib" $(APR_LIB) $(APU_LIB)
 
 !IF DEFINED(EXTRA_LIBS)
