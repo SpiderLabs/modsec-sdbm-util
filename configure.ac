@@ -12,7 +12,6 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([m4])
 AC_CONFIG_SRCDIR([LICENSE])
 AC_PREFIX_DEFAULT([/usr/local/modsecurity])
-AC_CONFIG_HEADERS(modsec-sdbm-util-config.h)
 
 AM_INIT_AUTOMAKE([-Wall foreign])
 m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
@@ -30,10 +29,7 @@ AC_PROG_MAKE_SET
 AC_PROG_GREP
 AC_PATH_PROGS(PERL, [perl perl5], )
 AC_PATH_PROGS(ENV_CMD, [env printenv], )
-
-# Checks for header files.
-#AC_HEADER_STDC
-#AC_CHECK_HEADERS([fcntl.h limits.h stdlib.h string.h unistd.h sys/types.h sys/stat.h])
+AM_PROG_CC_C_O
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
@@ -49,7 +45,7 @@ CPPFLAGS="$CPPFLAGS -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE"
 # Checks for library functions.
 AC_FUNC_MALLOC
 AC_FUNC_MEMCMP
-AC_CHECK_FUNCS([atexit getcwd memmove memset strcasecmp strchr strdup strerror strncasecmp strrchr strstr strtol fchmod strcasestr])
+AC_CHECK_FUNCS([atexit strdup strerror])
 
 # Some directories
 MSC_BASE_DIR=`pwd`

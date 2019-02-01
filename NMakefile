@@ -1,0 +1,242 @@
+#  Copyright(c) 2019 Red Hat Inc.,
+#  and individual contributors as indicated by the @authors tag.
+#  See the copyright.txt in the distribution for a
+#  full listing of individual contributors.
+#
+#  This is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU Lesser General Public
+#  License as published by the Free Software Foundation; either
+#  version 2 of the License, or (at your option) any later version.
+#
+#  This software is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#  Lesser General Public License for more details.
+#
+#  You should have received a copy of the GNU Lesser General Public
+#  License along with this software in the file COPYING.LIB;
+#  if not, write to the Free Software Foundation, Inc.,
+#  59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
+#
+# @author Mladen Turk
+#
+!IF !DEFINED(SRCDIR) || "$(SRCDIR)" == ""
+SRCDIR = .
+!ENDIF
+TARGET = EXE
+PROJECT = modsec-sdbm-util
+
+CC = cl.exe
+CXX = $(CC) -TP
+CPP = $(CC) -EP
+LINK = link.exe
+RC = rc.exe
+MT = mt.exe
+
+# If CPU is not defined, apply defaults
+!IF !DEFINED(CPU) || "$(CPU)" == ""
+# Set BUILD_CPU if it is not yet set
+!IF !DEFINED(BUILD_CPU) || "$(BUILD_CPU)" == ""
+!IF "$(PROCESSOR_ARCHITECTURE)" == ""
+!IF "$(PROCESSOR_ARCHITEW6432)" == ""
+# Default to x86, will be upcased later
+BUILD_CPU=x86
+!ELSE
+BUILD_CPU=$(PROCESSOR_ARCHITEW6432)
+!ENDIF
+!ELSE
+BUILD_CPU=$(PROCESSOR_ARCHITECTURE)
+!ENDIF
+!ENDIF
+# Check BUILD_CPU and reset value if necessary
+!IF "$(BUILD_CPU)" == "i386" || "$(BUILD_CPU)" == "x86" || "$(BUILD_CPU)" == "i686"
+CPU=X86
+!ENDIF
+!IF "$(BUILD_CPU)" == "amd64" || "$(BUILD_CPU)" == "x86_64" || "$(BUILD_CPU)" == "x64"
+CPU=X64
+!ENDIF
+!IF "$(BUILD_CPU)" == "ia64" || "$(BUILD_CPU)" == "i64"
+CPU=I64
+!ENDIF
+# did we manage to set CPU?
+!IF !DEFINED(CPU) || "$(CPU)" == ""
+!ERROR Unexpected value of BUILD_CPU: $(BUILD_CPU) or PROCESSOR_ARCHITECTURE=$(PROCESSOR_ARCHITECTURE) or PROCESSOR_ARCHITEW6432=$(PROCESSOR_ARCHITEW6432).
+!ENDIF
+!ENDIF
+
+!IF "$(CPU)" != "X86"
+!IF "$(CPU)" != "X64"
+!IF "$(CPU)" != "I64"
+!ERROR Must specify CPU environment variable (X86, X64, I64) $(CPU)
+!ENDIF
+!ENDIF
+!ENDIF
+
+!IF !DEFINED(WINVER) || "$(WINVER)" == ""
+WINVER=WVISTA
+!ENDIF
+
+!IF "$(WINVER)" != "WINNT"
+!IF "$(WINVER)" != "WINXP"
+!IF "$(WINVER)" != "WIN2003"
+!IF "$(WINVER)" != "WVISTA"
+!IF "$(WINVER)" != "WIN7"
+!IF "$(WINVER)" != "WIN8"
+!ERROR Must specify WINVER environment variable (WINNT, WINXP, WIN2003, WVISTA, WIN7, WIN8)
+!ENDIF
+!ENDIF
+!ENDIF
+!ENDIF
+!ENDIF
+!ENDIF
+
+!IF "$(WINVER)" == "WINNT"
+NMAKE_WINVER = 0x0500
+_WIN32_IE = 0x0500
+!ELSEIF "$(WINVER)" == "WINXP"
+NMAKE_WINVER = 0x0501
+_WIN32_IE = 0x0600
+!ELSEIF "$(WINVER)" == "WIN2003"
+NMAKE_WINVER = 0x0502
+_WIN32_IE = 0x0600
+!ELSEIF "$(WINVER)" == "WVISTA"
+NMAKE_WINVER = 0x0600
+_WIN32_IE = 0x0700
+!ELSEIF "$(WINVER)" == "WIN7"
+NMAKE_WINVER = 0x0601
+_WIN32_IE = 0x0800
+!ELSEIF "$(WINVER)" == "WIN8"
+NMAKE_WINVER = 0x0602
+_WIN32_IE = 0x0900
+!ELSE
+!ERROR Must specify WINVER environment variable (WINNT, WINXP, WIN2003, WVISTA, WIN7, WIN8)
+!ENDIF
+
+NMAKE_WINNT = -D_WINNT -DWINNT -D_WIN32_WINNT=$(NMAKE_WINVER) -DWINVER=$(NMAKE_WINVER) -D_WIN32_IE=$(_WIN32_IE)
+
+BUILD=RELEASE
+
+!IF !DEFINED(APR_DECLARE_STATIC) || "$(APR_DECLARE_STATIC)" == ""
+APR_LIB = libapr-1.lib
+APU_LIB = libaprutil-1.lib
+!ELSE
+CFLAGS = $(CFLAGS) -DAPR_DECLARE_STATIC
+APR_LIB = apr-1.lib
+APU_LIB = aprutil-1.lib
+!ENDIF
+
+!IFNDEF WITH_APR
+!ERROR Must specify APR directory
+!ENDIF
+
+# Common flags for all platforms
+CMN_CFLAGS = -c -nologo -DWIN32 -D_WIN32 -D_WINDOWS $(NMAKE_WINNT) -W3
+CMN_CFLAGS = $(CMN_CFLAGS) -D_CONSOLE
+
+!IF "$(CPU)" == "X86"
+CPU_CFLAGS = -D_X86_=1
+MACHINE=X86
+_LIB=lib
+!ELSE
+CPU_CFLAGS = -DWIN64 -D_WIN64
+_LIB=lib64
+!IF "$(CPU)" == "X64"
+CPU_CFLAGS = -D_AMD64_=1 -D_X64_=1 $(CPU_FLAGS)
+MACHINE=AMD64
+!ELSEIF "$(CPU)" == "I64"
+CPU_CFLAGS = -D_IA64_=1  $(CPU_FLAGS)
+MACHINE=IA64
+!ENDIF
+!ENDIF
+
+!IF "$(CPU)" == "X86"
+OPT_CFLAGS = -O2 -Ob2 -Oy- -Zi -DNDEBUG
+!ELSE
+OPT_CFLAGS = -O2 -Ob2 -Zi -DNDEBUG
+!ENDIF
+
+CRT_CFLAGS = -D_MT -MD
+
+CFLAGS = $(CMN_CFLAGS) $(CPU_CFLAGS) $(OPT_CFLAGS) $(CRT_CFLAGS) $(CFLAGS)
+!IF DEFINED(EXTRA_CFLAGS)
+CFLAGS = $(CFLAGS) $(EXTRA_CFLAGS)
+!ENDIF
+
+CPPFLAGS = -TP -EHsc
+!IF DEFINED(EXTRA_CPPFLAGS)
+CPPFLAGS = $(CPPFLAGS) $(EXTRA_CPPFLAGS)
+!ENDIF
+
+# Linker section
+LIBS = kernel32.lib advapi32.lib user32.lib
+LIBS = $(LIBS) /libpath:"$(WITH_APR)\lib" $(APR_LIB) $(APU_LIB)
+
+!IF DEFINED(EXTRA_LIBS)
+LIBS = $(LIBS) $(EXTRA_LIBS)
+!ENDIF
+
+COMMON_LFLAGS = /NOLOGO
+
+# Always add debugging to the linker
+OPT_LFLAGS = /INCREMENTAL:NO /DEBUG /OPT:REF
+
+LFLAGS = $(COMMON_LFLAGS) /SUBSYSTEM:CONSOLE /MACHINE:$(MACHINE)
+!IF DEFINED(EXTRA_LFLAGS)
+LFLAGS = $(LFLAGS) $(EXTRA_LFLAGS)
+!ENDIF
+
+# Resource compiler flags
+BASE_RCFLAGS=/l 0x409 /d "WIN32" /d "_WIN32" /d "WINNT" /d "_WINNT" /d "_$(MACHINE)_"
+BASE_RCFLAGS = $(BASE_RCFLAGS) /d "NDEBUG"
+RCFLAGS = $(BASE_RCFLAGS)
+!IF DEFINED(EXTRA_RCFLAGS)
+RCFLAGS = $(RCFLAGS) $(EXTRA_RCFLAGS)
+!ENDIF
+
+# Build Target dir e.g. X86_RELEASE_DLL
+!IF !DEFINED(WORKDIR) || "$(WORKDIR)" == ""
+!IF !DEFINED(BUILDIR_EXT) || "$(BUILDIR_EXT)" == ""
+WORKDIR = $(CPU)_$(BUILD)_$(TARGET)
+WORKDIR_EXE = $(CPU)_$(BUILD)_EXE
+!ELSE
+WORKDIR = $(CPU)_$(BUILD)_$(BUILDIR_EXT)
+!ENDIF
+!ENDIF
+
+CLEANTARGET=if exist "$(WORKDIR)\$(NULL)" rd /s /q $(WORKDIR)
+MAKEWORKDIR=if not exist "$(WORKDIR)\$(NULL)" mkdir $(WORKDIR)
+MAKEINSTALL=if not exist "$(INSTALLLOC)" mkdir $(INSTALLLOC)
+
+INCLUDES = -I$(SRCDIR) -I$(WITH_APR)\include -I$(WITH_APR)\include\arch\win32
+PDBFLAGS = -Fo$(WORKDIR)\ -Fd$(WORKDIR)\$(PROJECT)-src
+OBJECTS = \
+	$(WORKDIR)\modsec-sdbm-util.obj
+
+BUILDLOC = $(PREFIX)\bin
+BUILDEXE = $(WORKDIR)\$(PROJECT).exe
+BUILDPDB = $(WORKDIR)\$(PROJECT).pdb
+BUILDMAN = $(BUILDEXE).manifest
+
+all : $(WORKDIR) $(BUILDEXE)
+
+$(BUILDLOC) :
+	@if not exist "$(BUILDLOC)\$(NULL)" mkdir "$(BUILDLOC)"
+
+$(WORKDIR) :
+	@$(MAKEWORKDIR)
+
+{$(SRCDIR)}.c{$(WORKDIR)}.obj:
+	$(CC) $(CFLAGS) $(INCLUDES) $(PDBFLAGS) $<
+
+$(OBJECTS): $(OBJDEPS)
+
+$(BUILDEXE): $(WORKDIR) $(OBJECTS)
+	$(LINK) $(LFLAGS) $(OBJECTS) $(LIBS) $(LDIRS) /pdb:$(BUILDPDB) /out:$(BUILDEXE)
+	IF EXIST $(BUILDMAN) \
+		mt -nologo -manifest $(BUILDMAN) -outputresource:$(BUILDEXE);1
+
+clean:
+	@$(CLEANTARGET)
+
+install: $(BUILDLOC) $(WORKDIR) $(BUILDEXE)
+	@xcopy "$(WORKDIR)\*.exe" "$(BUILDLOC)" /Y /Q

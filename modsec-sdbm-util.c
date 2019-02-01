@@ -17,515 +17,512 @@
  * gcc modsec-sdbm-util.c -g `pkg-config apr-1 apr-util-1 --libs --cflags` -o modsec-sdbm-util 
  */
 
-#include <ctype.h>
-#include <stdio.h>
+#include "apr.h"
+#include "apr_lib.h"
+#include "apr_errno.h"
+#include "apr_file_io.h"
+#include "apr_pools.h"
+#include "apr_strings.h"
+#include "apr_general.h"
+#include "apr_time.h"
+#include "apr_getopt.h"
+#include "apr_sdbm.h"
+
+#if APR_HAVE_STDLIB_H
 #include <stdlib.h>
-#include <unistd.h>
-#include <apr.h>
-#include <apr_errno.h>
-#include <apr_general.h>
-#include <apr_want.h>
-#include <apr_allocator.h>
-#include <apr_sdbm.h>
+#endif
+#if APR_HAVE_STRING_H
+#include <string.h>
+#endif
+#if APR_HAVE_STRINGS_H
+#include <strings.h>
+#endif
 #include <time.h>
 
+#if !defined(VERSION)
 #define VERSION "v1.0"
+#endif
+#define PRGNAME "modsec_sdbm_util"
 
-#ifndef WIN32
+#ifdef WIN32
+# define v  if (verbose) printf
+#else
 # define v(fmt, ARGS...) do { if (verbose) printf("%s:%d:%s(): " fmt, __FILE__, \
         __LINE__, __func__, ## ARGS); } while (0)
-# define p(fmt, ARGS...) do { printf(fmt, ## ARGS); } while (0)
-#endif
-#ifdef WIN32
-#define p  printf
-#define v  if (verbose) printf
 #endif
 
-#define IS_EXPIRED 128
 
-#define PRINT 2
-#define PRINT_ONLY_EXPIRED 4
-#define PRINT_MODSEC_VARS 8
-#define SHRINK 16
-#define STATUS 32
-#define EXTRACT 64
-
-
-int verbose = 0;
-static char progress_feedback[] = {'|', '/', '-', '\\'};
+#define PRINT               0x00000010
+#define PRINT_ONLY_EXPIRED  0x00000100
+#define PRINT_MODSEC_VARS   0x00001000
+#define SHRINK              0x00010000
+#define STATUS              0x00100000
+#define EXTRACT             0x01000000
+#define IS_EXPIRED          0x10000000
 
 
-int open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
+#define PROGRESS_STAT_SIZE 6
+static char progress_feedback[PROGRESS_STAT_SIZE] = {'|', '/', '-', '|', '\\', '-'};
+static int verbose = 0;
+static const char *shortname;
+
+
+static apr_status_t open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
 {
-    apr_status_t ret = APR_SUCCESS;
-    char *guessed_name = NULL;
+    apr_status_t rv;
+    char        *guessed_name = NULL;
 
-    v("Trying to open: %s\n", name);
-
-    ret = apr_sdbm_open(db, name, APR_WRITE | APR_SHARELOCK, 0x0777, pool);
-    if (ret == APR_SUCCESS)
-    {
+    v("Trying to open database: %s\n", name);
+    rv = apr_sdbm_open(db, name, APR_WRITE | APR_SHARELOCK,
+                       0x0777, pool);
+    if (rv == APR_SUCCESS) {
         goto ok_to_go;
     }
 
     if (strlen(name) < 5) /* .ext  + 1 */
         goto failed;
 
-    guessed_name = strndup(name, strlen(name)-4);
+    guessed_name = apr_pstrndup(pool, name, strlen(name) - 4);
 
-    v("Trying to open: %s\n", guessed_name);
-    ret = apr_sdbm_open(db, guessed_name, APR_WRITE | APR_SHARELOCK,
-            0x0777, pool);
-    free(guessed_name);
-
-    if (ret == APR_SUCCESS)
-    {
+    v("Trying to open database: %s\n", guessed_name);
+    rv = apr_sdbm_open(db, guessed_name, APR_WRITE | APR_SHARELOCK,
+                       0x0777, pool);
+    if (rv == APR_SUCCESS) {
         goto ok_to_go;
     }
 
 failed:
-    v("Failed to open.\n");
-    return -1;
+    v("Failed to open database.\n");
+    return rv;
 ok_to_go:
-    v("File opened.\n");
-    return 0;
+    v("Database opened.\n");
+    return APR_SUCCESS;
 }
 
-int modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
-        unsigned int blob_size, int action)
+static apr_status_t modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
+                                  unsigned int blob_size, int action)
 {
-    unsigned int blob_offset;
-    int ret;
+    unsigned int blob_offset = 0;
+    apr_status_t rv = APR_SUCCESS;
 
 
-    ret = 0;
-    blob_offset = 3;
-
-    while (blob_offset + 1 < blob_size)
-    {
+    while (blob_offset + 1 < blob_size) {
         char *name;
         char *value;
-        int name_len;
-        int value_len;
+        int   name_len;
+        int   value_len;
 
         name_len = (blob[blob_offset] << 8) + blob[blob_offset + 1];
-        if (name_len == 0)
-        {
+        if (name_len == 0) {
             /* Is the length a name length, or just the end of the blob? */
-            if (blob_offset < blob_size - 2)
-            {
+            if (blob_offset < blob_size - 2) {
                 /* This should never happen as the name length
                  * includes the terminating NUL and should be 1 for ""
                  */
                 v("Maybe we have a corruption... the string goes beyond the " \
-                        "allocated space.\n");
+                  "allocated space.\n");
             }
             break;
         }
-        else if (name_len > 65536)
-        {
+        else if (name_len > 65536) {
             /* This should never happen as the length is restricted on store
              * to 65536.
              */
             v("Possibly corrupted database: var name length > 65536 (0x%04x) " \
-                   " at blob offset %u-%u.", name_len, blob_offset,
+              "at blob offset %u-%u.", name_len, blob_offset,
                    blob_offset + 1);
+            /* XXX: We should probably bail out since the database
+             * is corrupted
+             */
             break;
         }
 
         blob_offset += 2;
-        if (blob_offset + name_len > blob_size)
-        {
-            return ret;
+        if (blob_offset + name_len > blob_size) {
+            /* TODO: print some error message
+             */
+            return rv;
         }
 
-        name = strndup((const char *)blob + blob_offset, name_len - 1);
+        name = apr_pstrndup(pool, (const char *)blob + blob_offset, name_len - 1);
         blob_offset += name_len;
         name_len--;
 
         value_len = (blob[blob_offset] << 8) + blob[blob_offset + 1];
         blob_offset += 2;
-        if (blob_offset + value_len > blob_size)
-        {
-            return ret;
+        if (blob_offset + value_len > blob_size) {
+            return rv;
         }
-        value = strndup((const char *)blob + blob_offset, value_len - 1);
+        value = apr_pstrndup(pool, (const char *)blob + blob_offset, value_len - 1);
 
         blob_offset += value_len;
         value_len--;
 
-        if (action & IS_EXPIRED)
-        {
-            if (strcmp("__expire_KEY", name) == 0)
-            {
-                int start = atoi(value);
-                int end = time(NULL);
-                v("Expired: %d, %d delta: %d\n", start, end, end-start);
+        if (action & IS_EXPIRED) {
+            if (strcmp("__expire_KEY", name) == 0) {
+                time_t start = atoi(value);
+                time_t end   = time(NULL);
+                v("Expired: %ld, %ld delta: %ld\n", start, end, end - start);
 
-                if (end-start > 0)
-                    ret = 1;
+                if ((end - start) > 0)
+                    rv = APR_EOF;
             }
         }
-        if (action & PRINT)
-            printf("%30s: %s\n", name, value);
-
+        if (action & PRINT) {
+            fprintf(stdout, "%30s: %s\n", name, value);
+        }
     }
-    return ret;
+    return rv;
 }
 
 
-void print_modsec_variables(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_size)
+static void print_modsec_variables(apr_pool_t *pool, const unsigned char *blob,
+                                   unsigned int blob_size)
 {
-    p(" - ModSecurity variables:\n");
+    fprintf(stdout, " - ModSecurity variables:\n");
     modsec_unpack(pool, blob, blob_size, PRINT);
 }
 
-int is_expired(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_size)
+static apr_status_t is_expired(apr_pool_t *pool, const unsigned char *blob, unsigned int blob_size)
 {
     return modsec_unpack(pool, blob, blob_size, IS_EXPIRED);
 }
 
-int remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
+static apr_status_t remove_datum_t(apr_pool_t *pool, apr_sdbm_t *db, apr_sdbm_datum_t *key)
 {
-    int ret = 0;
+    apr_status_t rv = apr_sdbm_delete(db, *key);
 
-    ret = apr_sdbm_delete(db, *key);
-
-    if (ret == APR_SUCCESS)
-    {
+    if (rv == APR_SUCCESS) {
         v("Deleted successfully.\n");
-        return 0;
     }
-
-    v("apr_sdbm_rdonly? %d\n", apr_sdbm_rdonly(db));
-    v("APR_EINVAL? %d\n", APR_EINVAL);
-    v("ret ==  %d\n", ret);
-
-    v("Failed to delete.\n");
-    return -1;
+    else {
+        char errmsg[250];
+        v("Failed to delete %s\n",
+          apr_strerror(rv, errmsg, sizeof(errmsg)));
+    }
+    return rv;
 }
 
-static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action, char *new_db_path)
+static apr_status_t dump_database(apr_pool_t *pool, apr_sdbm_t *db,
+                                  int action, char *new_db_path)
 {
-    apr_status_t ret;
+    apr_status_t     rv;
     apr_sdbm_datum_t key;
     apr_sdbm_datum_t val;
-    apr_sdbm_t *db_dest;
-    double elements = 0;
-    int bad_datum = 0;
-    int expired_datum = 0;
-    int removed = 0;
-    int progress = 0;
-    int fret = 0;
+    apr_sdbm_t      *db_dest;
+    double  elements = 0;
+    int     bad_datum = 0;
+    int     expired_datum = 0;
+    int     removed = 0;
+    int     progress = 0;
+    char   *db_name = NULL;
 
-    if (action & PRINT)
+    if (action & PRINT) {
         v("Dumping database...\n");
-    if (action & SHRINK)
+    }
+    if (action & SHRINK) {
         v("Starting the shrink process...\n");
-    if (action & STATUS)
+    }
+    if (action & STATUS) {
         v("Showing some status about the databases...\n");
+    }
 
-    if (action & EXTRACT)
-    {
-       
-        char *file_name = "/new_db";
-        int full_len = 1 + strlen(new_db_path) + strlen(file_name); 
-        char *full_path = (char *) malloc(full_len);
-        strcpy(full_path, new_db_path);
-        strcat(full_path, file_name);
-        full_path[full_len] = '\0';
-  
-        v("Exporting valid items to: %s.[pag,dir]...\n",full_path);
+    if (action & EXTRACT) {
+        apr_filepath_merge(&db_name, new_db_path,
+                           "new_db", APR_FILEPATH_NATIVE, pool);
+        v("Exporting valid items to: %s.[pag,dir]...\n", db_name);
         
-        ret = apr_sdbm_open(&db_dest, full_path,
-                APR_CREATE | APR_WRITE | APR_SHARELOCK, 0x0777, pool);
+        rv = apr_sdbm_open(&db_dest, db_name,
+                           APR_CREATE | APR_WRITE | APR_SHARELOCK, 0x0777, pool);
 
-        if (ret != APR_SUCCESS)
-        {
+        if (rv != APR_SUCCESS) {
             v("Failed to retrieve the first key of the database.\n");
-            fret = -1;
-            goto end;
+            return rv;
         }
     }
 
-    ret = apr_sdbm_firstkey(db, &key);
-    if (ret != APR_SUCCESS)
-    {
+    rv = apr_sdbm_firstkey(db, &key);
+    if (rv != APR_SUCCESS) {
         v("Failed to retrieve the first key of the database.\n");
-        fret = -1;
         goto end;
     }
 
     do {
-        ret = apr_sdbm_fetch(db, &val, key);
-        if (ret != APR_SUCCESS) {
+        rv = apr_sdbm_fetch(db, &val, key);
+        if (rv != APR_SUCCESS) {
             v("Failed to fetch the value of the key: %s.\n", key.dptr);
-            fret = -1;
-            goto end;
+            break;
         }
 
         elements++;
 
-        if (action & PRINT)
-        {
+        if (action & PRINT) {
             if ((!(action & PRINT_ONLY_EXPIRED)) ||
-                    ((action & PRINT_ONLY_EXPIRED) && is_expired(pool,
-                    (const unsigned char *)val.dptr, val.dsize)))
-            {
-                printf("Key: \"%s\", Value len: %d\n", key.dptr, val.dsize);
-                if (action & PRINT_MODSEC_VARS)
-                {
+                ((action & PRINT_ONLY_EXPIRED) &&
+                is_expired(pool, (const unsigned char *)val.dptr, val.dsize))) {
+                fprintf(stdout, "Key: \"%s\", Value len: %d\n", key.dptr, val.dsize);
+                if (action & PRINT_MODSEC_VARS) {
                     print_modsec_variables(pool,
                             (const unsigned char *)val.dptr, val.dsize);
                 }
             }
         }
 
-        if (action & SHRINK || action & STATUS || action & EXTRACT)
-        {
+        if ((action & SHRINK) || (action & STATUS) || (action & EXTRACT)) {
             int selected = 0;
+
             if (val.dsize == 0) {
                 bad_datum++;
                 selected = 1;
             }
 
-            if (is_expired(pool, (const unsigned char *)val.dptr, val.dsize))
-            {
+            if (is_expired(pool, (const unsigned char *)val.dptr, val.dsize)) {
                 expired_datum++;
                 selected = 1;
             }
 
-            if ((int)elements % 10 == 0)
-            {
-                int p2s = (int) progress++ % 4;
-                p(" [%c] %.0f records so far.\r", progress_feedback[p2s],
-                        elements);
+            if ((int)elements % 10 == 0) {
+                progress = (progress + 1) % PROGRESS_STAT_SIZE;
+                fprintf(stdout, " [%c] %.0f records so far.\r",
+                        progress_feedback[progress], elements);
                 fflush(stdout);
             }
 
-            if (selected && action & SHRINK)
-            {
-                ret = remove_datum_t(pool, db, &key);
-                if (ret != APR_SUCCESS)
-                {
-                    p("Failed to delete key: \"%s\"\n", (const unsigned char *)key.dptr);
+            if (selected && (action & SHRINK)) {
+                rv = remove_datum_t(pool, db, &key);
+                if (rv != APR_SUCCESS) {
+                    fprintf(stderr, "Failed to delete key: \"%s\"\n",
+                            (const char *)key.dptr);
                 } else {
                     removed++;
                 }
-                //Remove key.
+                /* Remove key.
+                 */
             }
 
-            if (selected == 0 && action & EXTRACT)
-            {
-                ret = apr_sdbm_store(db_dest, key, val, APR_SDBM_INSERT);
-                if (ret != APR_SUCCESS)
-                {
-                    p("Failed to insert key: \"%s\"\n", (const unsigned char *)key.dptr);
+            if ((selected == 0) && (action & EXTRACT)) {
+                rv = apr_sdbm_store(db_dest, key, val, APR_SDBM_INSERT);
+                if (rv != APR_SUCCESS) {
+                    fprintf(stderr, "Failed to insert key: \"%s\"\n",
+                            (const char *)key.dptr);
                 }
 
             }
 
         }
 
-        ret = apr_sdbm_nextkey(db, &key);
-        if (ret != APR_SUCCESS) {
-            v("Failed to retrieve the next key.\n");
-            fret = -1;
-            goto end;
+        rv = apr_sdbm_nextkey(db, &key);
+        if (rv != APR_SUCCESS) {
+            if (rv == APR_EOF) {
+                v("No more records in the database.\n");
+            }
+            else {
+                v("Failed to retrieve the next key.\n");
+            }
+            break;
         }
-    } while (key.dptr);
+    } while(key.dptr);
 
 end:
-    if (action & EXTRACT)
-    {
-        p("New database generated with valid keys at: %s/new_db\n", new_db_path);
+    if (action & EXTRACT) {
+        fprintf(stdout, "New database generated with valid keys at: %s\n", db_name);
         apr_sdbm_close(db_dest);
     }
-    if (action & SHRINK || action & STATUS)
-    {
-        printf("\n");
-        printf("Total of %.0f elements processed.\n", elements);
-        printf("%d elements removed.\n", removed);
-        printf("Expired elements: %d, inconsistent items: %d\n", expired_datum,
-            bad_datum);
-        if (expired_datum+bad_datum != 0 && elements !=0)
-            printf("Fragmentation rate: %2.2f%% of the database is/was dirty " \
-                "data.\n", 100*(expired_datum+bad_datum)/elements);
+    if ((action & SHRINK) || (action & STATUS)) {
+        fprintf(stdout, "\n");
+        fprintf(stdout, "Total of %.0f elements processed.\n", elements);
+        fprintf(stdout, "%d elements removed.\n", removed);
+        fprintf(stdout, "Expired elements: %d, inconsistent items: %d\n",
+               expired_datum, bad_datum);
+        if (expired_datum + bad_datum != 0 && elements != 0) {
+            fprintf(stdout, 
+                    "Fragmentation rate: %2.2f%% of the database is/was dirty data.\n",
+                    100 * (expired_datum + bad_datum) / elements);
+        }
     }
 
-    return fret;
+    return rv;
 }
 
-int remove_key (apr_pool_t *pool, apr_sdbm_t *db, char *key_str)
+static apr_status_t remove_key(apr_pool_t *pool, apr_sdbm_t *db, char *key_str)
 {
     apr_sdbm_datum_t key;
 
     v("Deleting key: %s\n", key_str);
 
-    key.dptr = key_str;
-    key.dsize = strlen(key_str)+1;
+    key.dptr  = key_str;
+    key.dsize = (int)strlen(key_str) + 1;
 
     return remove_datum_t(pool, db, &key);
 }
 
-void version (void) {
-    p("\n modsec-sdbm-util %s\n\n", VERSION);
-}
-
-void help (void) {
-
-    p("\n Usage: modsec-sdbm-util [nkxsdahVvurD] <database-name>\n\n");
-
-    p("This utility was created in order to make easy the maintenance of the SDBM files\n");
-    p("which stores ModSecurity persistent collections.\n\n");
-
-    p("  -k, shrink: Removes all the expired elements as long as others not well\n");
-    p("\tformated items from the database.\n");
-    p("  -n, new: Extract valid items of a database to a new one. Output will be:\n");
-    p("\t/tmp/new_db.[ip,pag] unless otherwise specified using the -D option.\n");
-    p("  -D, directory: Used with -n, expects to receive a directory path in which the\n");
-    p("\tthe resulting new_db.[ip,pag] files are placed.\n");
-    p("  -s, status: Print information about the table, such us the amount of items,\n");
-    p("\tamount of expired items and also the amount of malformed items that\n");
-    p("\tmay be using space;\n");
-    p("  -d, dump: Dump all database items to `stdout`;\n");
-    p("  -u, unpack: Interpret the content of the value as ModSecurity does, printing\n");
-    p("\tthe results to the console. (This does not make sense without the\n");
-    p("\t-d option);\n");
-    p("  -x, expired: Print only the expired elements. (As unpack, this item does not\n");
-    p("\tmake sense without the dump option);\n");
-    p("  -r, remove: Expects to receive a key as a paramter to be removed;\n");
-    p("  -V. version: Print version information.\n");    
-    p("  -v, verbose: Some extra information about what this utility is doing.\n");
-    p("  -h, help: this message.\n\n");
-
-}
-
-int main (int argc, char **argv)
+static void version(void)
 {
-    apr_pool_t *pool;
-    char *to_remove = NULL;
-    char *new_db_path = strdup("/tmp");
-    int index;
-    int c;
-    int action = 0;
+    fprintf(stderr, "%s %s\n\n", shortname, VERSION);
+}
 
-    if (argc < 2)
-    {
-        help();
-        return 0;
+static void usage(void) {
+
+    fprintf(stderr,
+        "Usage: %s [nkxsdahVvurD] <database-name>\n\n", shortname);
+    fprintf(stderr,
+        "This utility was created in order to make easy the maintenance of the SDBM files\n"
+        "which stores ModSecurity persistent collections.\n\n"
+        "  -k, shrink: Removes all the expired elements as long as others not well\n"
+        "      formated items from the database.\n"
+        "  -n, new: Extract valid items of a database to a new one. Output will be:\n"
+        "      /tmp/new_db.[dir,pag] unless otherwise specified using the -D option.\n"
+        "  -D, directory: Used with -n, expects to receive a directory path in which the\n"
+        "      the resulting new_db.[dir,pag] files are placed.\n"
+        "  -s, status: Print information about the table, such us the amount of items,\n"
+        "      amount of expired items and also the amount of malformed items that\n"
+        "      tmay be using space;\n"
+        "  -d, dump: Dump all database items to `stdout`;\n"
+        "  -u, unpack: Interpret the content of the value as ModSecurity does, printing\n"
+        "      the results to the console. (This does not make sense without the\n"
+        "     -d option);\n"
+        "  -x, expired: Print only the expired elements. (As unpack, this item does not\n"
+        "      make sense without the dump option);\n"
+        "  -r, remove: Expects to receive a key as a paramter to be removed;\n"
+        "  -V. version: Print version information.\n"
+        "  -v, verbose: Some extra information about what this utility is doing.\n"
+        "  -h, help: this message.\n"
+        "\n");
+
+}
+
+int main (int argc, const char * const argv[])
+{
+    apr_pool_t   *pool;
+    char         *to_remove   = NULL;
+    char         *new_db_path = NULL;
+    char          c;
+    int           action = 0;
+    apr_dir_t    *db_dest_dir;
+    apr_getopt_t *opt;
+    const char   *opt_arg;
+    apr_status_t  rv;
+
+    apr_app_initialize(&argc, &argv, NULL);
+    atexit(apr_terminate);
+
+    if ((rv = apr_pool_create(&pool, NULL)) != APR_SUCCESS) {
+        return rv;
+    }
+    if (argc) {
+        shortname = apr_filepath_name_get(argv[0]);
+    }
+    else {
+        shortname = PRGNAME;
+    }
+    if (argc < 2) {
+        usage();
+        return APR_EINVAL;
     }
 
-    while ((c = getopt (argc, argv, "nkxsdahVvur:D:")) != -1)
-    switch (c)
-    {
-        case 'd':
-            action = action | PRINT;
-            break;
-        case 'u':
-            action = action | PRINT_MODSEC_VARS;
-            break;
-        case 'x':
-            action = action | PRINT_ONLY_EXPIRED;
-            break;
-        case 'k':
-            action = action | SHRINK;
-            break;
-        case 's':
-            action = action | STATUS;
-            break;
-        case 'n':
-            action = action | EXTRACT;
-            break;
-        case 'D':
-            free(new_db_path);
-            new_db_path = strdup(optarg);
-            break;
-        case 'r':
-            to_remove = strdup(optarg);
-            break;
-        case 'v':
-            verbose = 1;
-            break;
-        case 'V':
-            version();
-            return 0;
-        case '?':
-            if (optopt == 'r')
-                fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-            else if (isprint (optopt))
-                fprintf (stderr, "Unknown option `-%c'.\n", optopt);
-            else
-                fprintf (stderr,
-                        "Unknown option character `\\x%x'.\n", optopt);
-            help();
-            return 1;
-        case 'h':
-        default:
-            help();
-            return 0;
+    apr_getopt_init(&opt, pool, argc, argv);
+
+    while ((rv = apr_getopt(opt, "nkxsdahVvur:D:", &c, &opt_arg)) == APR_SUCCESS) {
+        switch (c) {
+            case 'd':
+                action |= PRINT;
+                break;
+            case 'u':
+                action |= PRINT_MODSEC_VARS;
+                break;
+            case 'x':
+                action |= PRINT_ONLY_EXPIRED;
+                break;
+            case 'k':
+                action |= SHRINK;
+                break;
+            case 's':
+                action |= STATUS;
+                break;
+            case 'n':
+                action |= EXTRACT;
+                break;
+            case 'D':
+                new_db_path = apr_pstrdup(pool, opt_arg);
+                break;
+            case 'r':
+                to_remove = apr_pstrdup(pool, opt_arg);
+                break;
+            case 'v':
+                verbose = 1;
+                break;
+            case 'V':
+                version();
+                return 0;
+            case 'h':
+                usage();
+                return 0;
+            default:
+                break;
+        }
+    }
+    if (rv != APR_EOF) {
+        usage();
+        return rv;
     }
 
-    if (optind == argc) {
-        printf ("No database name was provided.\n");
-        help();
-        return 0;
+    if (argc <= opt->ind) {
+        fprintf(stderr, "No database name was provided.\n");
+        usage();
+        return APR_EINVAL;
     }
 
-    apr_initialize();
-    /* atexit(apr_terminate()); */
+    if (new_db_path == NULL) {
+        if ((rv = apr_temp_dir_get((const char **)&new_db_path, pool)) != APR_SUCCESS) {
+            usage();
+            return rv;
+        }
+    }
+    /* Test to see if the target directory exists
+     */
+    v("Checking target directory: %s\n", new_db_path);
+    rv = apr_dir_open(&db_dest_dir, new_db_path, pool);
+    if (rv != APR_SUCCESS) {
+        char errmsg[250];
+        fprintf(stderr, "Could not open target directory %s: %s\n",
+                new_db_path, apr_strerror(rv, errmsg, sizeof(errmsg)));
+        return rv;
+    }
+    apr_dir_close(db_dest_dir);
+    v("Target directory exists.\n");
 
-    apr_pool_create(&pool, NULL);
-
-    for (index = optind; index < argc; index++)
-    {
-        int ret = 0;
-        char *file = argv[index];
+    while (opt->ind < argc) {
         apr_sdbm_t *db = NULL;
-        apr_dir_t *db_dest_dir;
 
-        // test to see if the target directory exists
-        printf ("Checking target directory: %s\n", new_db_path);
-        ret = apr_dir_open(&db_dest_dir, new_db_path, pool);
-        if (ret != APR_SUCCESS) {
-            char errmsg[120];
-            p("Could not open target directory %s: %s\n", new_db_path, apr_strerror(ret, errmsg, sizeof errmsg));
-            goto that_is_all_folks;
+        v("Using database: %s\n", argv[opt->ind]);
+        rv = open_sdbm(pool, &db, argv[opt->ind]);
+        if (rv != APR_SUCCESS) {
+            fprintf(stderr, "Failed to open sdbm: %s\n", argv[opt->ind]);
+            break;
         }
-        apr_dir_close(db_dest_dir);
-        printf("Target directory exists.\n");
-
-        printf ("Opening file: %s\n", file);
-        ret = open_sdbm(pool, &db, argv[index]);
-        if (ret < 0)
-        {
-            printf("Failed to open sdbm: %s\n", file);
-            goto that_is_all_folks;
-        }
-        printf("Database ready to be used.\n");
+        v("Database ready to be used.\n");
 
         if (to_remove) {
-            printf("Removing key: %s\n", to_remove);
+            v("Removing key: %s\n", to_remove);
             remove_key(pool, db, to_remove);
+            opt->ind++;
             continue;
         }
-        if (action == 0)
-        {
-            printf("Choose an option.\n");
-            help();
-            goto that_is_all_folks;
+        if (action == 0) {
+            /* XXX: This message looks weird.
+             * If there is no action specified should we bail out
+             * before opening database?
+             */
+            fprintf(stderr, "Choose an option.\n");
+            usage();
+            rv = APR_EINVAL;
+            break;
         }
 
         dump_database(pool, db, action, new_db_path);
-
         apr_sdbm_close(db);
+        opt->ind++;
     }
 
-    apr_pool_destroy(pool);
-
-    free(to_remove);
-    free(new_db_path);
-
-that_is_all_folks:
-    return 0;
+    return rv;
 }
