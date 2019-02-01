@@ -66,6 +66,22 @@ static char progress_feedback[PROGRESS_STAT_SIZE] = {'|', '/', '-', '|', '\\', '
 static int verbose = 0;
 static const char *shortname;
 
+static char *xstrndup(const char *s, size_t n)
+{
+    char *res;
+    const char *end;
+
+    if (s == NULL) {
+        return NULL;
+    }
+    end = memchr(s, '\0', n);
+    if (end != NULL)
+        n = end - s;
+    res = malloc(n + 1);
+    memcpy(res, s, n);
+    res[n] = '\0';
+    return res;
+}
 
 static apr_status_t open_sdbm(apr_pool_t *pool, apr_sdbm_t **db, const char *name)
 {
@@ -144,16 +160,17 @@ static apr_status_t modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
             return rv;
         }
 
-        name = apr_pstrndup(pool, (const char *)blob + blob_offset, name_len - 1);
+        name = xstrndup((const char *)blob + blob_offset, name_len - 1);
         blob_offset += name_len;
         name_len--;
 
         value_len = (blob[blob_offset] << 8) + blob[blob_offset + 1];
         blob_offset += 2;
         if (blob_offset + value_len > blob_size) {
+            free(name);
             return rv;
         }
-        value = apr_pstrndup(pool, (const char *)blob + blob_offset, value_len - 1);
+        value = xstrndup((const char *)blob + blob_offset, value_len - 1);
 
         blob_offset += value_len;
         value_len--;
@@ -171,6 +188,8 @@ static apr_status_t modsec_unpack(apr_pool_t *pool, const unsigned char *blob,
         if (action & PRINT) {
             fprintf(stdout, "%30s: %s\n", name, value);
         }
+        free(name);
+        free(value);
     }
     return rv;
 }
