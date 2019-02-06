@@ -151,7 +151,7 @@ CPPFLAGS = $(CPPFLAGS) $(EXTRA_CPPFLAGS)
 !ENDIF
 
 # Linker section
-LIBS = kernel32.lib advapi32.lib user32.lib ws2_32.lib mswsock.lib shell32.lib
+LIBS = kernel32.lib advapi32.lib user32.lib ws2_32.lib mswsock.lib shell32.lib iphlpapi.lib
 LIBS = $(LIBS) /libpath:"$(WITH_APR)\lib" $(APR_LIB) $(APU_LIB)
 
 !IF DEFINED(EXTRA_LIBS)
