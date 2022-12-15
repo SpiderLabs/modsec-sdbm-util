@@ -40,7 +40,7 @@
 #define p  printf
 #define v  if (verbose) printf
 #endif
-#define p2  if (!quiet) printf
+#define p2  if (!quiet) p
 
 #define IS_EXPIRED 128
 
