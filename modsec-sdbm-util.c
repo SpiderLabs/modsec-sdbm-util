@@ -233,7 +233,7 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action, char *new
         int full_len = 1 + strlen(new_db_path) + strlen(file_name); 
         char *full_path = (char *) malloc(full_len);
         if (!full_path) {
-            v("Failed to retrieve the first key of the database.\n");
+            v("Cannot allocate memory.\n");
             fret = -1;
             goto end;
         }
