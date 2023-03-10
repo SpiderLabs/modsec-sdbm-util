@@ -1,0 +1,43 @@
+###########################################################################
+#
+# Usage:   NMAKE -f Makefile.win APR={apr installion dir} APRUTIL={aprutil installion dir} INSTALL={modsec-sdbm-util installion dir}
+#
+!IF "$(APR)" == "" || "$(APRUTIL)" == ""
+!ERROR NMAKE arguments: APR=dir APRUTIL=dir are required to build modsec-sdbm-util for Windows
+!ENDIF
+
+!IF "$(INSTALL)" == ""
+INSTALL = .
+!ENDIF
+
+# Linking libraries
+LIBS = $(APR)\lib\libapr-1.lib \
+       $(APRUTIL)\lib\libaprutil-1.lib
+
+###########################################################################
+###########################################################################
+
+DEFS = /nologo /DWIN32 /DWINNT  /D_WINDOWS /Dinline=APR_INLINE /w /Zf /Zi /FS /O2 /GL /MD /DNDEBUG /MP16 /arch:AVX
+EXE = modsec-sdbm-util.exe
+
+INCLUDES = -I. -I.. -I$(APRUTIL)\include -I$(APR)\include
+
+CFLAGS= -MD $(INCLUDES) $(DEFS)
+
+LDFLAGS =
+
+OBJS = modsec-sdbm-util.obj
+
+all: $(EXE)
+
+exe: $(EXE)
+
+.c.obj:
+        $(CC) $(CFLAGS) -c $< -Fo$@
+
+$(EXE): $(OBJS)
+	 -@ if NOT EXIST "build" mkdir "build"
+        $(CC) $(CFLAGS) $(LDFLAGS) -LD $(OBJS) -Febuild\$(EXE) /Fobuild\$(EXE) /Fpbuild\$(EXE) /FRbuild\$(EXE) /Fd $(LIBS) /link
+
+clean:
+        del $(OBJS) $(EXE) *.dll *.exe *.pdb *.idb *.ilk *.exp *.res *.rc *.bin *.manifest
