@@ -1,0 +1,40 @@
+###########################################################################
+#
+# Usage:   NMAKE -f Makefile.win APR={apr installion dir} APRUTIL={aprutil installion dir}
+#
+!IF "$(APR)" == "" || "$(APRUTIL)" == ""
+!ERROR NMAKE arguments: APR=dir and APRUTIL=dir are required to build modsec-sdbm-util for Windows
+!ENDIF
+
+###########################################################################
+
+cc = cl
+
+link = link
+
+includes = -I$(APRUTIL)\include -I$(APR)\include
+
+libs = $(APR)\lib\libapr-1.lib $(APRUTIL)\lib\libaprutil-1.lib
+
+cflags= $(includes) /nologo /DWIN32 /DWINNT /D_WINDOWS /Dinline=APR_INLINE /w /Zf /Zi /FS /O2 /GL /MD /DNDEBUG
+
+ldflags = /nologo /Incremental:no /LTCG /debug /opt:ref,icf 
+
+objs = modsec-sdbm-util.obj
+
+exe = modsec-sdbm-util.exe
+
+###########################################################################
+
+all: $(exe)
+
+exe: $(exe)
+
+.c.obj:
+        $(cc) $(cflags) -c $< -Fo$@
+
+$(exe): $(objs)
+        $(link) $(ldflags) -out:$(exe) $(objs) $(libs)
+
+clean:
+        del $(objs) $(exe) *.exe *.pdb *.idb *.ilk *.exp *.res *.rc *.bin *.manifest
