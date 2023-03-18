@@ -424,7 +424,7 @@ int main (int argc, char **argv)
         return 0;
     }
 
-    while ((c = getopt (argc, argv, "nkxsdahVvur:D:")) != -1)
+    while ((c = getopt (argc, argv, "qnkxsdahVvur:D:")) != -1)
     switch (c)
     {
         case 'd':
