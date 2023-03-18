@@ -40,6 +40,7 @@
 #define p  printf
 #define v  if (verbose) printf
 #endif
+#define p2  if (!quiet) printf
 
 #define IS_EXPIRED 128
 
@@ -51,7 +52,7 @@
 #define EXTRACT 64
 
 
-int verbose = 0;
+int verbose = 0, quiet = 0;
 static char progress_feedback[] = {'|', '/', '-', '\\'};
 
 
@@ -231,6 +232,12 @@ static int dump_database(apr_pool_t *pool, apr_sdbm_t *db, int action, char *new
         char *file_name = "/new_db";
         int full_len = 1 + strlen(new_db_path) + strlen(file_name); 
         char *full_path = (char *) malloc(full_len);
+        if (!full_path) {
+            v("Cannot allocate memory.\n");
+            fret = -1;
+            goto end;
+        }
+        
         strcpy(full_path, new_db_path);
         strcat(full_path, file_name);
         full_path[full_len] = '\0';
@@ -343,13 +350,13 @@ end:
     }
     if (action & SHRINK || action & STATUS)
     {
-        printf("\n");
-        printf("Total of %.0f elements processed.\n", elements);
-        printf("%d elements removed.\n", removed);
-        printf("Expired elements: %d, inconsistent items: %d\n", expired_datum,
+        p2("\n");
+        p2("Total of %.0f elements processed.\n", elements);
+        p2("%d elements removed.\n", removed);
+        p2("Expired elements: %d, inconsistent items: %d\n", expired_datum,
             bad_datum);
         if (expired_datum+bad_datum != 0 && elements !=0)
-            printf("Fragmentation rate: %2.2f%% of the database is/was dirty " \
+            p2("Fragmentation rate: %2.2f%% of the database is/was dirty " \
                 "data.\n", 100*(expired_datum+bad_datum)/elements);
     }
 
@@ -397,6 +404,7 @@ void help (void) {
     p("  -r, remove: Expects to receive a key as a paramter to be removed;\n");
     p("  -V. version: Print version information.\n");    
     p("  -v, verbose: Some extra information about what this utility is doing.\n");
+    p("  -q, quiet: Only display needed information.\n");
     p("  -h, help: this message.\n\n");
 
 }
@@ -416,7 +424,7 @@ int main (int argc, char **argv)
         return 0;
     }
 
-    while ((c = getopt (argc, argv, "nkxsdahVvur:D:")) != -1)
+    while ((c = getopt (argc, argv, "qnkxsdahVvur:D:")) != -1)
     switch (c)
     {
         case 'd':
@@ -446,6 +454,9 @@ int main (int argc, char **argv)
             break;
         case 'v':
             verbose = 1;
+            break;
+        case 'q':
+            quiet = 1;
             break;
         case 'V':
             version();
@@ -485,7 +496,7 @@ int main (int argc, char **argv)
         apr_dir_t *db_dest_dir;
 
         // test to see if the target directory exists
-        printf ("Checking target directory: %s\n", new_db_path);
+        p2("Checking target directory: %s\n", new_db_path);
         ret = apr_dir_open(&db_dest_dir, new_db_path, pool);
         if (ret != APR_SUCCESS) {
             char errmsg[120];
@@ -493,19 +504,19 @@ int main (int argc, char **argv)
             goto that_is_all_folks;
         }
         apr_dir_close(db_dest_dir);
-        printf("Target directory exists.\n");
+        p2("Target directory exists.\n");
 
-        printf ("Opening file: %s\n", file);
+        p2("Opening file: %s\n", file);
         ret = open_sdbm(pool, &db, argv[index]);
         if (ret < 0)
         {
             printf("Failed to open sdbm: %s\n", file);
             goto that_is_all_folks;
         }
-        printf("Database ready to be used.\n");
+        p2("Database ready to be used.\n");
 
         if (to_remove) {
-            printf("Removing key: %s\n", to_remove);
+            p2("Removing key: %s\n", to_remove);
             remove_key(pool, db, to_remove);
             continue;
         }
